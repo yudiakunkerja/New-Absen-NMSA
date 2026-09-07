@@ -38,12 +38,22 @@ import {
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+
+// In Google Cloud Run (AI Studio environment), an internal nginx proxy forwards external traffic to localhost:3000.
+// On Railway or other cloud PaaS (detected via RAILWAY_* or process.env.PORT when not on Cloud Run K_SERVICE),
+// bind to the dynamically assigned process.env.PORT.
+const isAiStudioContainer = Boolean(
+  process.env.K_SERVICE && !process.env.RAILWAY_ENVIRONMENT && !process.env.RAILWAY_PROJECT_ID
+);
+const PORT = isAiStudioContainer
+  ? 3000
+  : (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000);
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-const DATA_FILE = path.join(process.cwd(), "data-store.json");
+const STORAGE_DIR = process.env.STORAGE_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || process.cwd();
+const DATA_FILE = path.join(STORAGE_DIR, "data-store.json");
 
 // Helper: Jakarta Date string (YYYY-MM-DD)
 function getJakartaDateStr(): string {
@@ -217,6 +227,134 @@ function writeState(state: any) {
 app.get("/api/health", async (req, res) => {
   const pingData = await handleKeepAlivePing(`${req.protocol}://${req.get("host")}`);
   res.json({ status: "ok", timestamp: new Date().toISOString(), ...pingData });
+});
+
+// Dedicated QR Code Web Viewer (For Easy Scanning in Cloud / Railway Environments)
+app.get("/qr", (req, res) => {
+  const status = getWhatsAppStatus();
+  if (status.status === "connected") {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(`
+      <!DOCTYPE html>
+      <html lang="id">
+        <head>
+          <meta charset="utf-8">
+          <title>WhatsApp Bot - Status Terhubung</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #0f172a; color: #f8fafc; }
+            .card { background: #1e293b; padding: 2.5rem; border-radius: 1.25rem; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); text-align: center; max-width: 440px; width: 90%; border: 1px solid #334155; }
+            .badge { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1.25rem; border-radius: 9999px; background: rgba(16, 185, 129, 0.15); color: #34d399; font-weight: 700; font-size: 0.875rem; border: 1px solid rgba(16, 185, 129, 0.3); margin-bottom: 1.25rem; }
+            h1 { font-size: 1.5rem; margin: 0 0 0.75rem; font-weight: 700; }
+            p { color: #94a3b8; font-size: 0.9375rem; line-height: 1.6; margin: 0 0 1.75rem; }
+            .user-info { background: #0f172a; border-radius: 0.75rem; padding: 0.875rem; margin-bottom: 1.5rem; font-size: 0.875rem; color: #cbd5e1; border: 1px solid #334155; }
+            a { display: inline-block; padding: 0.75rem 1.5rem; background: #10b981; color: #022c22; text-decoration: none; border-radius: 0.75rem; font-size: 0.875rem; font-weight: 700; transition: all 0.2s; }
+            a:hover { background: #34d399; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <div class="badge">🟢 WhatsApp Terhubung</div>
+            <h1>WhatsApp Bot 100% Aktif</h1>
+            <p>Sesi bot WhatsApp PT. Nusantara Mineral Sukses Abadi sedang online dan siap mengirim link presensi harian otomatis.</p>
+            ${status.user?.id ? `<div class="user-info">ID Akun: <strong>${status.user.id}</strong></div>` : ""}
+            <a href="/">Buka Dashboard Presensi</a>
+          </div>
+        </body>
+      </html>
+    `);
+    return;
+  }
+
+  if (status.qr) {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(`
+      <!DOCTYPE html>
+      <html lang="id">
+        <head>
+          <meta charset="utf-8">
+          <title>Scan WhatsApp QR Code - NMSA</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <meta http-equiv="refresh" content="6">
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #0f172a; color: #f8fafc; }
+            .card { background: #1e293b; padding: 2rem; border-radius: 1.25rem; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); text-align: center; max-width: 440px; width: 90%; border: 1px solid #334155; }
+            h1 { font-size: 1.35rem; margin: 0 0 0.5rem; font-weight: 700; }
+            p { color: #94a3b8; font-size: 0.875rem; line-height: 1.5; margin: 0 0 1.25rem; }
+            .qr-wrapper { background: white; padding: 1rem; border-radius: 1rem; display: inline-block; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3); margin-bottom: 1rem; }
+            img { display: block; width: 260px; height: 260px; border-radius: 0.5rem; }
+            .hint { font-size: 0.75rem; color: #64748b; margin-top: 0.5rem; }
+            .steps { text-align: left; background: #0f172a; border: 1px solid #334155; border-radius: 0.75rem; padding: 0.875rem 1rem; margin: 1.25rem 0; font-size: 0.8125rem; color: #cbd5e1; }
+            .steps ol { margin: 0; padding-left: 1.25rem; }
+            .steps li { margin: 0.25rem 0; }
+            .refresh-btn { display: inline-block; padding: 0.625rem 1.25rem; background: #10b981; color: #022c22; text-decoration: none; border-radius: 0.5rem; font-size: 0.8125rem; font-weight: 700; }
+          </style>
+        </head>
+        <body>
+          <div class="card">
+            <h1>Pindai QR Code WhatsApp</h1>
+            <p>Tautkan nomor WhatsApp pengirim bot PT. NMSA dengan memindai QR Code di bawah:</p>
+            <div class="qr-wrapper">
+              <img src="${status.qr}" alt="WhatsApp QR Code" />
+            </div>
+            <div class="steps">
+              <ol>
+                <li>Buka aplikasi WhatsApp di HP Anda</li>
+                <li>Pilih <strong>Perangkat Tertaut (Linked Devices)</strong></li>
+                <li>Klik <strong>Tautkan Perangkat</strong> dan arahkan kamera ke QR ini</li>
+              </ol>
+            </div>
+            <div class="hint">Halaman otomatis memperbarui QR setiap 6 detik</div>
+          </div>
+        </body>
+      </html>
+    `);
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="id">
+      <head>
+        <meta charset="utf-8">
+        <title>WhatsApp Bot - Menyiapkan QR</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta http-equiv="refresh" content="3">
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #0f172a; color: #f8fafc; }
+          .card { background: #1e293b; padding: 2.5rem; border-radius: 1.25rem; text-align: center; max-width: 420px; width: 90%; border: 1px solid #334155; }
+          .spinner { width: 44px; height: 44px; border: 4px solid #334155; border-top-color: #10b981; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 1.25rem; }
+          @keyframes spin { to { transform: rotate(360deg); } }
+          h2 { font-size: 1.25rem; margin: 0 0 0.5rem; }
+          p { color: #94a3b8; font-size: 0.875rem; margin: 0; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <div class="spinner"></div>
+          <h2>Menyiapkan QR Code WhatsApp...</h2>
+          <p>Sedang menghubungkan ke server WhatsApp. Halaman ini akan memuat otomatis dalam 3 detik.</p>
+        </div>
+      </body>
+    </html>
+  `);
+});
+
+// Direct PNG image endpoint for QR Code
+app.get("/api/wa/qr.png", (req, res) => {
+  const status = getWhatsAppStatus();
+  if (!status.qr) {
+    return res.status(404).send("QR code not ready or WhatsApp already connected");
+  }
+  const base64Data = status.qr.replace(/^data:image\/png;base64,/, "");
+  const imgBuffer = Buffer.from(base64Data, "base64");
+  res.writeHead(200, {
+    "Content-Type": "image/png",
+    "Content-Length": imgBuffer.length,
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+  });
+  res.end(imgBuffer);
 });
 
 // Dedicated UptimeRobot / Anti-Disconnect Ping Endpoint
@@ -1284,6 +1422,8 @@ async function start() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Absen Harian NMSA server running on http://0.0.0.0:${PORT}`);
+    console.log(`Open app in browser: http://0.0.0.0:${PORT}`);
+    console.log(`Scan WhatsApp QR in browser: http://0.0.0.0:${PORT}/qr`);
   });
 }
 

@@ -52,9 +52,10 @@ const useMultiFileAuthState = getUseMultiFileAuthState();
 const DisconnectReason = getDisconnectReason();
 const Browsers = getBrowsers();
 
-const AUTH_DIR = path.join(process.cwd(), "auth_info_baileys");
-const BACKUP_CREDS_FILE = path.join(process.cwd(), "auth_backup_creds.json");
-const DATA_FILE = path.join(process.cwd(), "data-store.json");
+const STORAGE_DIR = process.env.STORAGE_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || process.cwd();
+const AUTH_DIR = path.join(STORAGE_DIR, "auth_info_baileys");
+const BACKUP_CREDS_FILE = path.join(STORAGE_DIR, "auth_backup_creds.json");
+const DATA_FILE = path.join(STORAGE_DIR, "data-store.json");
 
 // Bot global state
 let sock: any = null;
@@ -757,6 +758,7 @@ export async function initWhatsApp(forceNew = false) {
         try {
           qrCodeDataUrl = await QRCode.toDataURL(qr, { margin: 2, scale: 8 });
           console.log("WhatsApp QR Code generated successfully at", new Date().toLocaleTimeString());
+          console.log("[WA-Bot] Buka QR Code di browser: kunjungi domain aplikasi Anda pada path /qr (misal: https://<domain-anda>/qr)");
         } catch (err) {
           console.error("Failed to generate QR data URL:", err);
           qrCodeDataUrl = null;

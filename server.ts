@@ -14,6 +14,7 @@ import {
   broadcastAttendanceLinks,
   resetWhatsAppSession,
   requestPairingCode,
+  handleKeepAlivePing,
 } from "./server/wa-bot";
 import {
   generateHumanDailyMessage,
@@ -187,8 +188,25 @@ function writeState(state: any) {
 
 // ==================== API ROUTES ====================
 
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
+// Health & Anti-Disconnect Keep-Alive (UptimeRobot, cron-job.org, Freshping)
+app.get("/api/health", async (req, res) => {
+  const pingData = await handleKeepAlivePing(`${req.protocol}://${req.get("host")}`);
+  res.json({ status: "ok", timestamp: new Date().toISOString(), ...pingData });
+});
+
+// Dedicated UptimeRobot / Anti-Disconnect Ping Endpoint
+app.get("/api/wa/keep-alive", async (req, res) => {
+  try {
+    const pingData = await handleKeepAlivePing(`${req.protocol}://${req.get("host")}`);
+    res.json(pingData);
+  } catch (err: any) {
+    res.status(500).json({ status: "error", error: err.message });
+  }
+});
+
+app.head("/api/wa/keep-alive", async (req, res) => {
+  await handleKeepAlivePing();
+  res.status(200).end();
 });
 
 // Shared State

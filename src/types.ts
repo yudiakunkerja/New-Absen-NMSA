@@ -143,6 +143,15 @@ export interface WhatsAppStatus {
     canSendAttendance: boolean;
     reason: string;
   };
+  keepAliveMetrics?: {
+    uptimeSeconds: number;
+    uptimeFormatted: string;
+    totalPings: number;
+    lastPingTime: string;
+    sessionPersisted: boolean;
+    autoReconnectActive: boolean;
+    isAlwaysOn: boolean;
+  };
 }
 
 export interface AppSharedState {

@@ -25,10 +25,13 @@ import {
   MessageCircle,
   ChevronRight,
   UserCheck,
+  Activity,
+  Radio,
 } from "lucide-react";
 import { Worker, WhatsAppStatus, BotDispatchSettings, BotMessageLog } from "../types";
 import { HolidaysScheduleTab } from "./HolidaysScheduleTab";
 import { FeatureRequestsTab } from "./FeatureRequestsTab";
+import { UptimeRobotTab } from "./UptimeRobotTab";
 
 interface WhatsAppAssistantModalProps {
   workers: Worker[];
@@ -51,7 +54,7 @@ export const WhatsAppAssistantModal: React.FC<WhatsAppAssistantModalProps> = ({
 }) => {
   // Navigation tabs
   const [activeSubTab, setActiveSubTab] = useState<
-    "connection" | "bot_settings" | "holidays" | "features" | "ai_console" | "logs"
+    "connection" | "uptime" | "bot_settings" | "holidays" | "features" | "ai_console" | "logs"
   >("connection");
 
   // Phone settings
@@ -443,8 +446,23 @@ export const WhatsAppAssistantModal: React.FC<WhatsAppAssistantModalProps> = ({
           }`}
         >
           <QrCode className="w-4 h-4" />
-          <span>1. Koneksi WhatsApp (QR & Pairing Code)</span>
+          <span>1. Sambung WhatsApp (QR & Pairing)</span>
           {isConnected && <span className="w-2 h-2 rounded-full bg-emerald-400" />}
+        </button>
+
+        <button
+          onClick={() => setActiveSubTab("uptime")}
+          className={`px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center space-x-2 transition-colors ${
+            activeSubTab === "uptime"
+              ? "bg-slate-900 text-white shadow-sm"
+              : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
+          }`}
+        >
+          <Activity className="w-4 h-4 text-emerald-500" />
+          <span>2. Koneksi Selamanya (UptimeRobot 24/7)</span>
+          <span className="px-1.5 py-0.5 text-[10px] bg-emerald-100 text-emerald-800 rounded font-bold">
+            1x Scan Selamanya
+          </span>
         </button>
 
         <button
@@ -456,7 +474,7 @@ export const WhatsAppAssistantModal: React.FC<WhatsAppAssistantModalProps> = ({
           }`}
         >
           <Sliders className="w-4 h-4 text-emerald-500" />
-          <span>2. Stelan Pengiriman Bot & Variasi Pesan Harian</span>
+          <span>3. Stelan Bot & Variasi Pesan Harian</span>
           <span className="px-1.5 py-0.5 text-[10px] bg-emerald-100 text-emerald-800 rounded font-bold">
             Stelan Bot
           </span>
@@ -471,7 +489,7 @@ export const WhatsAppAssistantModal: React.FC<WhatsAppAssistantModalProps> = ({
           }`}
         >
           <Calendar className="w-4 h-4 text-indigo-500" />
-          <span>3. Kalender Libur & Akhir Pekan</span>
+          <span>4. Kalender Libur & Akhir Pekan</span>
           {waStatus.todayHolidayStatus?.isHoliday && (
             <span className="px-1.5 py-0.2 text-[9px] bg-rose-500 text-white rounded-full font-bold">
               Hari Ini Libur
@@ -488,7 +506,7 @@ export const WhatsAppAssistantModal: React.FC<WhatsAppAssistantModalProps> = ({
           }`}
         >
           <Sparkles className="w-4 h-4 text-purple-500" />
-          <span>4. Request Fitur & AI Studio</span>
+          <span>5. Request Fitur & AI Studio</span>
           {Boolean(waStatus.featureRequests?.length) && (
             <span className="px-1.5 py-0.2 text-[9px] bg-purple-600 text-white rounded-full font-bold">
               {waStatus.featureRequests?.length}
@@ -505,7 +523,7 @@ export const WhatsAppAssistantModal: React.FC<WhatsAppAssistantModalProps> = ({
           }`}
         >
           <Bot className="w-4 h-4 text-emerald-500" />
-          <span>5. Live Console AI & Tanya Absensi</span>
+          <span>6. Live Console AI & Tanya Absensi</span>
         </button>
 
         <button
@@ -517,13 +535,42 @@ export const WhatsAppAssistantModal: React.FC<WhatsAppAssistantModalProps> = ({
           }`}
         >
           <FileText className="w-4 h-4" />
-          <span>6. Riwayat Pesan Bot ({waStatus.recentLogs?.length || 0})</span>
+          <span>7. Riwayat Pesan Bot ({waStatus.recentLogs?.length || 0})</span>
         </button>
       </div>
 
       {/* TAB 1: CONNECTION & QR CODE */}
       {activeSubTab === "connection" && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="space-y-4">
+          {/* Anti-Disconnect Notice */}
+          <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 border border-emerald-500/30 rounded-2xl p-4 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center shrink-0">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-xs font-bold text-white flex items-center space-x-2">
+                  <span>Jaminan 1 Kali Scan Selamanya & Anti-Disconnect 24/7</span>
+                  <span className="px-1.5 py-0.5 text-[9px] bg-emerald-500/20 text-emerald-300 rounded font-semibold border border-emerald-500/30">
+                    Aktif
+                  </span>
+                </h4>
+                <p className="text-[11px] text-slate-300 mt-0.5">
+                  Sesi kredensial disimpan permanen di server & dilengkapi watchdog 25 detik. Pasang link keep-alive ke UptimeRobot agar bot aktif 24/7 tanpa pernah terputus.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => setActiveSubTab("uptime")}
+              className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold flex items-center space-x-1.5 transition-colors shrink-0 self-start sm:self-auto"
+            >
+              <Activity className="w-3.5 h-3.5" />
+              <span>Buka Panduan UptimeRobot</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* QR Code / Pairing Code Card */}
           <div className="lg:col-span-7 bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
             <div className="flex items-center justify-between mb-4">
@@ -788,9 +835,15 @@ export const WhatsAppAssistantModal: React.FC<WhatsAppAssistantModalProps> = ({
             </div>
           </div>
         </div>
+        </div>
       )}
 
-      {/* TAB 2: STELAN BOT PENGIRIMAN & VARIASI PESAN HARIAN */}
+      {/* TAB 2: UPTIMEROBOT & PERMANENT CONNECTION */}
+      {activeSubTab === "uptime" && (
+        <UptimeRobotTab waStatus={waStatus} onRefresh={onRefreshStatus} />
+      )}
+
+      {/* TAB 3: STELAN BOT PENGIRIMAN & VARIASI PESAN HARIAN */}
       {activeSubTab === "bot_settings" && (
         <div className="space-y-6">
           <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">

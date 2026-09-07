@@ -1,0 +1,6 @@
+{
+  "name": "Absen Harian NMSA",
+  "description": "Sistem presensi karyawan NMSA cerdas terintegrasi asisten WhatsApp AI, geolokasi presensi tanpa PIN, dan auto-arsip PDF ke Google Drive.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

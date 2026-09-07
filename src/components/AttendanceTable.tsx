@@ -149,7 +149,7 @@ export const AttendanceTable: React.FC<AttendanceTableProps> = ({
   const totalWeeklyAllowance = workers.reduce((sum, w) => {
     const rec = attendanceRecords.find((r) => r.workerId === w.id);
     const presentDays = workDays.filter((d) => rec?.attendance?.[d.dateKey] === true).length;
-    return sum + presentDays * (w.dailyAllowance || 50000);
+    return sum + presentDays * (w.dailyAllowance || 25000);
   }, 0);
 
   return (
@@ -179,7 +179,7 @@ export const AttendanceTable: React.FC<AttendanceTableProps> = ({
           <p className="text-2xl font-bold text-slate-900 mt-1">
             Rp {(totalWeeklyAllowance / 1000).toLocaleString("id-ID")}k
           </p>
-          <span className="text-[11px] text-slate-400 mt-1 block">Rp 50.000 / hari kerja</span>
+          <span className="text-[11px] text-emerald-700 font-medium mt-1 block">Rp 25.000 / hari kerja</span>
         </div>
       </div>
 
@@ -288,7 +288,7 @@ export const AttendanceTable: React.FC<AttendanceTableProps> = ({
                 const presentCount = workDays.filter(
                   (d) => rec?.attendance?.[d.dateKey] === true
                 ).length;
-                const allowanceRate = worker.dailyAllowance || 50000;
+                const allowanceRate = worker.dailyAllowance || 25000;
                 const totalAllowance = presentCount * allowanceRate;
 
                 return (

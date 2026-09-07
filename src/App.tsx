@@ -172,7 +172,7 @@ export default function App() {
       record = {
         workerId,
         attendance: {},
-        dailyAllowance: worker?.dailyAllowance || 50000,
+        dailyAllowance: worker?.dailyAllowance || 25000,
         customStatus: {},
         reasons: {},
       };
@@ -223,6 +223,57 @@ export default function App() {
       });
     } catch (e) {
       console.error("Failed to update worker:", e);
+    }
+  };
+
+  // Add new Worker
+  const handleAddWorker = async (newWorker: Worker) => {
+    const updatedList = [...workers, newWorker];
+    setWorkers(updatedList);
+    try {
+      await fetch("/api/workers/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newWorker),
+      });
+      await loadState();
+    } catch (e) {
+      console.error("Failed to add worker:", e);
+    }
+  };
+
+  // Delete Worker
+  const handleDeleteWorker = async (workerId: string) => {
+    const updatedList = workers.filter((w) => w.id !== workerId);
+    setWorkers(updatedList);
+    try {
+      await fetch("/api/workers/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workerId }),
+      });
+      await loadState();
+    } catch (e) {
+      console.error("Failed to delete worker:", e);
+    }
+  };
+
+  // Delete Friday / Weekly Report
+  const handleDeleteFridayReport = async (reportId: string) => {
+    try {
+      const res = await fetch("/api/friday/delete-report", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reportId }),
+      });
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || "Gagal menghapus laporan");
+      }
+      await loadState();
+    } catch (e: any) {
+      console.error("Failed to delete report:", e);
+      throw e;
     }
   };
 
@@ -430,6 +481,7 @@ export default function App() {
             workers={workers}
             onTriggerManualArchive={handleTriggerManualArchive}
             onUploadReportToDrive={handleUploadReportToDrive}
+            onDeleteReport={handleDeleteFridayReport}
             driveConnected={Boolean(googleDriveToken)}
             googleDriveToken={googleDriveToken}
           />
@@ -450,6 +502,8 @@ export default function App() {
           <WorkerManagementView
             workers={workers}
             onUpdateWorker={handleUpdateWorker}
+            onAddWorker={handleAddWorker}
+            onDeleteWorker={handleDeleteWorker}
             onOpenWorkerAttendance={(w) => setActiveWorkerAttendance(w)}
           />
         )}

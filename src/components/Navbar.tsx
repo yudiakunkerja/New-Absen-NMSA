@@ -39,8 +39,13 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="flex items-center justify-between h-16">
           {/* Logo & Title */}
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-lg bg-emerald-600 flex items-center justify-center font-bold text-white shadow-md">
-              <Building2 className="w-6 h-6" />
+            <div className="w-11 h-11 rounded-xl bg-white p-1 flex items-center justify-center shadow-md border border-slate-300/30 shrink-0 overflow-hidden">
+              <img
+                src="https://i.ibb.co.com/0jwQZRH0/Logo-Nusantara-Mineral-Sukses-Abadi.jpg"
+                alt="Logo PT. Nusantara Mineral Sukses Abadi"
+                className="w-full h-full object-contain"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <div>
               <div className="flex items-center space-x-2">
@@ -126,7 +131,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <FileCheck className="w-4 h-4" />
-            <span>Riwayat Laporan Jumat & Drive</span>
+            <span>Riwayat Laporan Absen</span>
             {isFriday && <span className="w-2 h-2 rounded-full bg-amber-400" />}
           </button>
 

@@ -74,8 +74,18 @@ const serverStartTime = Date.now();
 export function hasStoredCredentials(): boolean {
   try {
     const credsPath = path.join(AUTH_DIR, "creds.json");
-    if (fs.existsSync(credsPath)) return true;
-    if (fs.existsSync(BACKUP_CREDS_FILE)) return true;
+    if (fs.existsSync(credsPath)) {
+      const content = JSON.parse(fs.readFileSync(credsPath, "utf-8"));
+      if (content?.registered === true || Boolean(content?.me?.id)) {
+        return true;
+      }
+    }
+    if (fs.existsSync(BACKUP_CREDS_FILE)) {
+      const content = JSON.parse(fs.readFileSync(BACKUP_CREDS_FILE, "utf-8"));
+      if (content?.registered === true || Boolean(content?.me?.id)) {
+        return true;
+      }
+    }
     return false;
   } catch {
     return false;
@@ -86,11 +96,14 @@ export function restoreCredsFromBackupIfNeeded() {
   try {
     const credsPath = path.join(AUTH_DIR, "creds.json");
     if (!fs.existsSync(credsPath) && fs.existsSync(BACKUP_CREDS_FILE)) {
-      if (!fs.existsSync(AUTH_DIR)) {
-        fs.mkdirSync(AUTH_DIR, { recursive: true });
+      const backupData = JSON.parse(fs.readFileSync(BACKUP_CREDS_FILE, "utf-8"));
+      if (backupData?.registered === true || Boolean(backupData?.me?.id)) {
+        if (!fs.existsSync(AUTH_DIR)) {
+          fs.mkdirSync(AUTH_DIR, { recursive: true });
+        }
+        fs.copyFileSync(BACKUP_CREDS_FILE, credsPath);
+        console.log("[Auth-Shield] Pulihkan sesi kredensial WhatsApp terdaftar dari backup permanen.");
       }
-      fs.copyFileSync(BACKUP_CREDS_FILE, credsPath);
-      console.log("[Auth-Shield] Pulihkan sesi kredensial WhatsApp dari backup permanen.");
     }
   } catch (err: any) {
     console.error("[Auth-Shield] Gagal restore kredensial dari backup:", err.message);
@@ -101,7 +114,11 @@ export function backupCreds() {
   try {
     const credsPath = path.join(AUTH_DIR, "creds.json");
     if (fs.existsSync(credsPath)) {
-      fs.copyFileSync(credsPath, BACKUP_CREDS_FILE);
+      const content = JSON.parse(fs.readFileSync(credsPath, "utf-8"));
+      // Only backup if actually authenticated/registered
+      if (content?.registered === true || Boolean(content?.me?.id)) {
+        fs.copyFileSync(credsPath, BACKUP_CREDS_FILE);
+      }
     }
   } catch (err: any) {
     console.error("[Auth-Shield] Gagal backup creds.json:", err.message);
@@ -245,12 +262,12 @@ export function getWhatsAppStatus() {
   };
 }
 
-export function cleanupAuthFolder() {
+export function cleanupAuthFolder(clearBackup: boolean = false) {
   try {
     if (fs.existsSync(AUTH_DIR)) {
       fs.rmSync(AUTH_DIR, { recursive: true, force: true });
     }
-    if (fs.existsSync(BACKUP_CREDS_FILE)) {
+    if (clearBackup && fs.existsSync(BACKUP_CREDS_FILE)) {
       fs.rmSync(BACKUP_CREDS_FILE, { force: true });
     }
   } catch (err) {
@@ -271,7 +288,8 @@ export async function disconnectWhatsApp() {
     rawQrString = null;
     qrTimestamp = null;
     connectedUser = null;
-    cleanupAuthFolder();
+    lastError = null;
+    cleanupAuthFolder(true);
     return { success: true };
   } catch (e: any) {
     return { success: false, error: e.message };
@@ -281,7 +299,7 @@ export async function disconnectWhatsApp() {
 export async function resetWhatsAppSession() {
   console.log("Resetting WhatsApp Baileys session and auth state...");
   await disconnectWhatsApp();
-  cleanupAuthFolder();
+  cleanupAuthFolder(true);
   return await initWhatsApp(true);
 }
 
@@ -324,6 +342,32 @@ export async function sendWhatsAppMessage(toPhone: string, text: string): Promis
     return true;
   } catch (err) {
     console.error("Failed to send WhatsApp message:", err);
+    return false;
+  }
+}
+
+export async function sendWhatsAppDocument(
+  toPhone: string,
+  docBuffer: Buffer,
+  fileName: string,
+  caption?: string
+): Promise<boolean> {
+  if (!sock || connectionStatus !== "connected") {
+    console.warn("WhatsApp socket not connected, cannot send document to:", toPhone);
+    return false;
+  }
+  try {
+    const jid = formatToWaJid(toPhone);
+    await sock.sendMessage(jid, {
+      document: docBuffer,
+      mimetype: "application/pdf",
+      fileName: fileName,
+      caption: caption || "",
+    });
+    console.log(`[WA-Bot] Berhasil mengirim dokumen PDF "${fileName}" ke ${toPhone}`);
+    return true;
+  } catch (err: any) {
+    console.error(`[WA-Bot] Gagal mengirim dokumen PDF ke ${toPhone}:`, err.message || err);
     return false;
   }
 }
@@ -731,7 +775,7 @@ export async function initWhatsApp(forceNew = false) {
 
       if (connection === "close") {
         const statusCode = (lastDisconnect?.error as any)?.output?.statusCode;
-        console.log(`[WA-Socket] WhatsApp connection closed (Status ${statusCode}). Error:`, lastDisconnect?.error?.message || lastDisconnect?.error);
+        const rawErrMsg = lastDisconnect?.error?.message || String(lastDisconnect?.error || "");
 
         connectedUser = null;
         qrCodeDataUrl = null;
@@ -740,6 +784,20 @@ export async function initWhatsApp(forceNew = false) {
 
         const isRestartRequired = statusCode === 515;
         const isExplicitLogout = statusCode === DisconnectReason.loggedOut;
+        const isQrTimedOut =
+          statusCode === 408 ||
+          statusCode === DisconnectReason.timedOut ||
+          rawErrMsg.toLowerCase().includes("qr refs attempts ended");
+
+        if (isQrTimedOut) {
+          console.log("[WA-Socket] QR Code telah berakhir (Timeout 408 / QR refs attempts ended). Menunggu tindakan pemindaian QR baru dari pengguna.");
+          connectionStatus = "disconnected";
+          lastError = "QR Code telah kadaluarsa (batas waktu pemindaian 2 menit selesai). Silakan klik tombol 'Buat QR Baru' untuk memindai ulang.";
+          cleanupAuthFolder(false);
+          return;
+        }
+
+        console.log(`[WA-Socket] WhatsApp connection closed (Status ${statusCode}). Detail:`, rawErrMsg);
 
         if (isRestartRequired) {
           console.log("[WA-Socket] Status 515 (Restart Required). Reconnecting in 1.5s with preserved session...");
@@ -749,14 +807,14 @@ export async function initWhatsApp(forceNew = false) {
           console.warn("[WA-Socket] Sesi WhatsApp telah dicabut dari aplikasi WhatsApp HP.");
           connectionStatus = "disconnected";
           lastError = "Perangkat ditautkan telah dicabut dari aplikasi WhatsApp HP. Silakan scan QR code baru.";
-          cleanupAuthFolder();
+          cleanupAuthFolder(true);
         } else if (hasStoredCredentials()) {
           console.log(`[WA-Socket] Auto-reconnecting in 3s (Status: ${statusCode}). Preserving session!`);
           connectionStatus = "connecting";
           setTimeout(() => initWhatsApp(), 3000);
         } else {
           connectionStatus = "disconnected";
-          setTimeout(() => initWhatsApp(), 5000);
+          // Without stored credentials, don't auto-reconnect endlessly
         }
       }
     });

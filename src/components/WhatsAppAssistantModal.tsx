@@ -29,7 +29,6 @@ import {
   Radio,
 } from "lucide-react";
 import { Worker, WhatsAppStatus, BotDispatchSettings, BotMessageLog } from "../types";
-import { HolidaysScheduleTab } from "./HolidaysScheduleTab";
 import { FeatureRequestsTab } from "./FeatureRequestsTab";
 import { UptimeRobotTab } from "./UptimeRobotTab";
 
@@ -54,7 +53,7 @@ export const WhatsAppAssistantModal: React.FC<WhatsAppAssistantModalProps> = ({
 }) => {
   // Navigation tabs
   const [activeSubTab, setActiveSubTab] = useState<
-    "connection" | "uptime" | "bot_settings" | "holidays" | "features" | "ai_console" | "logs"
+    "connection" | "uptime" | "bot_settings" | "features" | "ai_console"
   >("connection");
 
   // Phone settings
@@ -171,6 +170,23 @@ export const WhatsAppAssistantModal: React.FC<WhatsAppAssistantModalProps> = ({
       alert(err.message || "Gagal menyimpan nomor admin");
     } finally {
       setSavingPhone(false);
+    }
+  };
+
+  const handleGenerateQr = async () => {
+    setResettingSession(true);
+    setPairingCode(null);
+    setPairingError(null);
+    try {
+      const res = await fetch("/api/wa/init", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        onRefreshStatus();
+      }
+    } catch (err: any) {
+      console.error("Gagal inisialisasi QR:", err);
+    } finally {
+      setResettingSession(false);
     }
   };
 
@@ -481,23 +497,6 @@ export const WhatsAppAssistantModal: React.FC<WhatsAppAssistantModalProps> = ({
         </button>
 
         <button
-          onClick={() => setActiveSubTab("holidays")}
-          className={`px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center space-x-2 transition-colors ${
-            activeSubTab === "holidays"
-              ? "bg-slate-900 text-white shadow-sm"
-              : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
-          }`}
-        >
-          <Calendar className="w-4 h-4 text-indigo-500" />
-          <span>4. Kalender Libur & Akhir Pekan</span>
-          {waStatus.todayHolidayStatus?.isHoliday && (
-            <span className="px-1.5 py-0.2 text-[9px] bg-rose-500 text-white rounded-full font-bold">
-              Hari Ini Libur
-            </span>
-          )}
-        </button>
-
-        <button
           onClick={() => setActiveSubTab("features")}
           className={`px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center space-x-2 transition-colors ${
             activeSubTab === "features"
@@ -506,7 +505,7 @@ export const WhatsAppAssistantModal: React.FC<WhatsAppAssistantModalProps> = ({
           }`}
         >
           <Sparkles className="w-4 h-4 text-purple-500" />
-          <span>5. Request Fitur & AI Studio</span>
+          <span>4. Request Fitur & AI Studio</span>
           {Boolean(waStatus.featureRequests?.length) && (
             <span className="px-1.5 py-0.2 text-[9px] bg-purple-600 text-white rounded-full font-bold">
               {waStatus.featureRequests?.length}
@@ -523,19 +522,7 @@ export const WhatsAppAssistantModal: React.FC<WhatsAppAssistantModalProps> = ({
           }`}
         >
           <Bot className="w-4 h-4 text-emerald-500" />
-          <span>6. Live Console AI & Tanya Absensi</span>
-        </button>
-
-        <button
-          onClick={() => setActiveSubTab("logs")}
-          className={`px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center space-x-2 transition-colors ${
-            activeSubTab === "logs"
-              ? "bg-slate-900 text-white shadow-sm"
-              : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
-          }`}
-        >
-          <FileText className="w-4 h-4" />
-          <span>7. Riwayat Pesan Bot ({waStatus.recentLogs?.length || 0})</span>
+          <span>5. Live Console AI & Tanya Absensi</span>
         </button>
       </div>
 
@@ -668,6 +655,35 @@ export const WhatsAppAssistantModal: React.FC<WhatsAppAssistantModalProps> = ({
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${resettingSession ? "animate-spin" : ""}`} />
                         <span>{resettingSession ? "Mereset..." : "QR Kadaluarsa? Buat QR Baru"}</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : waStatus.error || waStatus.status === "disconnected" ? (
+                  <div className="py-10 bg-amber-50/70 rounded-2xl border border-amber-200 p-6 text-center">
+                    <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center mx-auto mb-3">
+                      <AlertCircle className="w-6 h-6" />
+                    </div>
+                    <p className="text-sm font-bold text-slate-900">
+                      {waStatus.error ? "QR Code Kadaluarsa / Siap Dibuat" : "WhatsApp Belum Tersambung"}
+                    </p>
+                    <p className="text-xs text-slate-600 mt-1.5 max-w-md mx-auto leading-relaxed">
+                      {waStatus.error || "Koneksi WhatsApp belum aktif. Klik tombol di bawah untuk membuat QR Code segar."}
+                    </p>
+
+                    <div className="mt-6 flex flex-wrap justify-center gap-3">
+                      <button
+                        onClick={handleGenerateQr}
+                        disabled={resettingSession}
+                        className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm flex items-center space-x-1.5 transition-colors disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${resettingSession ? "animate-spin" : ""}`} />
+                        <span>{resettingSession ? "Membuat QR Code..." : "Buat QR Code Baru Sekarang"}</span>
+                      </button>
+                      <button
+                        onClick={() => setConnectMethod("pairing")}
+                        className="px-4 py-2.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-medium"
+                      >
+                        Gunakan Kode Tautan (Tanpa Kamera)
                       </button>
                     </div>
                   </div>
@@ -1204,11 +1220,6 @@ export const WhatsAppAssistantModal: React.FC<WhatsAppAssistantModalProps> = ({
         </div>
       )}
 
-      {/* TAB 3: HOLIDAYS & WEEKEND SCHEDULE */}
-      {activeSubTab === "holidays" && (
-        <HolidaysScheduleTab waStatus={waStatus} onRefresh={onRefreshStatus} />
-      )}
-
       {/* TAB 4: FEATURE REQUESTS & AI STUDIO BRIDGE */}
       {activeSubTab === "features" && (
         <FeatureRequestsTab waStatus={waStatus} onRefresh={onRefreshStatus} />
@@ -1322,82 +1333,6 @@ export const WhatsAppAssistantModal: React.FC<WhatsAppAssistantModalProps> = ({
               <Send className="w-4 h-4" />
             </button>
           </form>
-        </div>
-      )}
-
-      {/* TAB 4: DISPATCH LOGS */}
-      {activeSubTab === "logs" && (
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-                <FileText className="w-4 h-4 text-emerald-600" />
-                <span>Riwayat Pengiriman Link &amp; Pesan Bot WhatsApp</span>
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Catatan seluruh pesan presensi yang berhasil dikirimkan ke nomor WhatsApp masing-masing karyawan.
-              </p>
-            </div>
-            <button
-              onClick={onRefreshStatus}
-              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-medium flex items-center space-x-1"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Refresh Log</span>
-            </button>
-          </div>
-
-          {!waStatus.recentLogs || waStatus.recentLogs.length === 0 ? (
-            <div className="py-12 text-center text-slate-400 text-xs">
-              <MessageCircle className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-              Belum ada riwayat pengiriman pesan bot hari ini. Klik "Kirim Link ke Semua Karyawan" untuk memulai.
-            </div>
-          ) : (
-            <div className="overflow-x-auto border border-slate-200 rounded-xl">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
-                  <tr>
-                    <th className="py-3 px-4">Waktu</th>
-                    <th className="py-3 px-4">Karyawan</th>
-                    <th className="py-3 px-4">Nomor WhatsApp</th>
-                    <th className="py-3 px-4">Cuplikan Pesan</th>
-                    <th className="py-3 px-4">Tipe</th>
-                    <th className="py-3 px-4 text-center">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {waStatus.recentLogs.map((log: BotMessageLog) => (
-                    <tr key={log.id} className="hover:bg-slate-50/70">
-                      <td className="py-3 px-4 whitespace-nowrap font-mono text-[11px] text-slate-500">
-                        {log.time}
-                      </td>
-                      <td className="py-3 px-4 font-bold text-slate-900">{log.workerName}</td>
-                      <td className="py-3 px-4 font-mono text-slate-600">{log.phoneNumber}</td>
-                      <td className="py-3 px-4 text-slate-600 max-w-xs truncate" title={log.messageText}>
-                        {log.messageText}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700">
-                          {log.isAutoScheduled ? "Otomatis Pagi" : "Manual Dispatch"}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            log.status === "sent"
-                              ? "bg-emerald-100 text-emerald-800"
-                              : "bg-rose-100 text-rose-800"
-                          }`}
-                        >
-                          {log.status === "sent" ? "Terkirim" : "Gagal"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
         </div>
       )}
     </div>

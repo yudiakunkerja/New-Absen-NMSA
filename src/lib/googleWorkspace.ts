@@ -81,13 +81,51 @@ export async function getOrCreateNestedFolder(accessToken: string, folderNames: 
   return currentParentId!;
 }
 
-// Upload a PDF Blob to Google Drive in the target folder
+// Upload or update a PDF Blob in Google Drive without creating duplicates
 export async function uploadPdfToDrive(
   accessToken: string,
   folderId: string,
   fileName: string,
   pdfBlob: Blob
 ): Promise<{ id: string; name: string; webViewLink: string }> {
+  // Check if file already exists in this folder
+  const queryStr = `name = '${fileName.replace(/'/g, "\\'")}' and '${folderId}' in parents and trashed = false`;
+  const searchUrl = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(queryStr)}&spaces=drive&fields=files(id,name,webViewLink)`;
+  
+  try {
+    const searchRes = await fetch(searchUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (searchRes.ok) {
+      const searchData: any = await searchRes.json();
+      if (searchData.files && searchData.files.length > 0) {
+        const existingFile = searchData.files[0];
+        // Update existing file in-place
+        const patchRes = await fetch(
+          `https://www.googleapis.com/upload/drive/v3/files/${existingFile.id}?uploadType=media&fields=id,name,webViewLink`,
+          {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/pdf",
+            },
+            body: pdfBlob,
+          }
+        );
+        await handleApiError(patchRes, `memperbarui berkas PDF "${fileName}" di Google Drive`);
+        const updatedData = await patchRes.json();
+        return {
+          id: updatedData.id || existingFile.id,
+          name: fileName,
+          webViewLink: updatedData.webViewLink || existingFile.webViewLink || `https://drive.google.com/file/d/${existingFile.id}/view`,
+        };
+      }
+    }
+  } catch (e: any) {
+    console.warn("Pencarian berkas lama di Google Drive dilewati:", e.message);
+  }
+
+  // File does not exist, upload as multipart
   const metadata = {
     name: fileName,
     parents: [folderId],

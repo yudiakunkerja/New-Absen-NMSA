@@ -1,28 +1,50 @@
-import jsPDF from "jspdf";
-import "jspdf-autotable";
-import { WeeklyReport, Worker } from "../types";
-import { NMSA_LOGO_BASE64 } from "./logoBase64";
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+import { NMSA_LOGO_BASE64 } from "../src/lib/logoBase64";
 
-export function generateWeeklyReportPDFBlob(report: WeeklyReport, workers: Worker[]): Blob {
-  // Use landscape A4 for comfortable multi-column view
+export interface PdfReportRecord {
+  workerId: string;
+  attendance: { [date: string]: boolean };
+  dailyAllowance: number;
+  customStatus?: { [date: string]: string };
+  reasons?: { [date: string]: string };
+}
+
+export interface PdfReportData {
+  id: string;
+  weekStartDate: string;
+  weekEndDate: string;
+  periodName?: string;
+  monthName?: string;
+  records: PdfReportRecord[];
+}
+
+export interface PdfWorker {
+  id: string;
+  name: string;
+  role: string;
+  dailyAllowance?: number;
+}
+
+export function generateReportPdfBuffer(report: PdfReportData, workers: PdfWorker[]): Buffer {
   const doc = new jsPDF("landscape", "pt", "a4");
 
   // Company Logo & Header
   try {
     doc.addImage(NMSA_LOGO_BASE64, "JPEG", 40, 15, 44, 42.5);
   } catch (err) {
-    console.warn("Could not add logo to PDF:", err);
+    console.warn("Could not add logo to server PDF:", err);
   }
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(15);
-  doc.setTextColor(30, 41, 59); // slate-800
+  doc.setTextColor(30, 41, 59);
   doc.text("PT. NUSANTARA MINERAL SUKSES ABADI (NMSA)", 94, 32);
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
-  doc.setTextColor(71, 85, 105); // slate-600
-  doc.text("LAPORAN REKAPITULASI PRESENSI & UANG MAKAN MINGGUAN KARYAWAN", 94, 46);
+  doc.setTextColor(71, 85, 105);
+  doc.text("LAPORAN REKAPITULASI PRESENSI & UANG MAKAN KARYAWAN", 94, 46);
 
   doc.setFontSize(8.5);
   doc.setTextColor(100, 116, 139);
@@ -33,30 +55,28 @@ export function generateWeeklyReportPDFBlob(report: WeeklyReport, workers: Worke
   doc.setLineWidth(1.5);
   doc.line(40, 68, 802, 68);
 
-  // Metadata Block
   const workerMap = new Map(workers.map((w) => [w.id, w]));
+  const uniqueRecordsMap = new Map<string, PdfReportRecord>();
 
-  const uniqueRecordsMap = new Map();
-  report.records.forEach((r) => {
+  (report.records || []).forEach((r) => {
     if (!uniqueRecordsMap.has(r.workerId)) {
       uniqueRecordsMap.set(r.workerId, { ...r });
     } else {
-      const existing = uniqueRecordsMap.get(r.workerId);
+      const existing = uniqueRecordsMap.get(r.workerId)!;
       existing.attendance = { ...existing.attendance, ...r.attendance };
       existing.customStatus = { ...existing.customStatus, ...r.customStatus };
       existing.reasons = { ...existing.reasons, ...r.reasons };
     }
   });
 
-  // Ensure all registered workers are present in report
   workers.forEach((w) => {
     if (!uniqueRecordsMap.has(w.id)) {
       uniqueRecordsMap.set(w.id, {
         workerId: w.id,
         attendance: {},
-        dailyAllowance: w.dailyAllowance || 50000,
+        dailyAllowance: w.dailyAllowance || 25000,
         customStatus: {},
-        reasons: {}
+        reasons: {},
       });
     }
   });
@@ -90,7 +110,6 @@ export function generateWeeklyReportPDFBlob(report: WeeklyReport, workers: Worke
   doc.setFont("helvetica", "normal");
   doc.text(`Dicetak Otomatis: ${new Date().toLocaleString("id-ID")}`, 420, 118);
 
-  // Helper to get dates from Monday to Friday of weekStartDate
   const getWeekDates = (startDateStr: string) => {
     const dates: string[] = [];
     const base = new Date(startDateStr);
@@ -126,7 +145,7 @@ export function generateWeeklyReportPDFBlob(report: WeeklyReport, workers: Worke
     return "-";
   };
 
-  const tableData = validRecords.map((r: any, index) => {
+  const tableData: any[] = validRecords.map((r: any, index) => {
     const worker = workerMap.get(r.workerId);
     const presentDays = Object.keys(r.attendance || {}).filter(
       (k) => r.attendance[k] && (!r.customStatus || !r.customStatus[k] || r.customStatus[k] === "Hadir")
@@ -150,7 +169,6 @@ export function generateWeeklyReportPDFBlob(report: WeeklyReport, workers: Worke
     ];
   });
 
-  // Add Summary row to tableData
   tableData.push([
     "",
     "",
@@ -166,7 +184,7 @@ export function generateWeeklyReportPDFBlob(report: WeeklyReport, workers: Worke
     `Rp ${totalAllCost.toLocaleString("id-ID")}`,
   ]);
 
-  (doc as any).autoTable({
+  autoTable(doc, {
     startY: 132,
     head: [
       [
@@ -214,7 +232,6 @@ export function generateWeeklyReportPDFBlob(report: WeeklyReport, workers: Worke
       valign: "middle",
     },
     didParseCell: function (data: any) {
-      // Highlight TOTAL row
       if (data.row.index === tableData.length - 1) {
         data.cell.styles.fillColor = [241, 245, 249];
         data.cell.styles.fontStyle = "bold";
@@ -222,8 +239,7 @@ export function generateWeeklyReportPDFBlob(report: WeeklyReport, workers: Worke
     },
   });
 
-  // Footer Signatures
-  const finalY = (doc as any).lastAutoTable.finalY + 25;
+  const finalY = (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 25 : 450;
   if (finalY < 500) {
     doc.setFontSize(9);
     doc.setFont("helvetica", "normal");
@@ -231,23 +247,12 @@ export function generateWeeklyReportPDFBlob(report: WeeklyReport, workers: Worke
 
     const signY = finalY + 20;
     doc.text("Dibuat & Diverifikasi oleh:", 120, signY);
-    doc.text("Admin HRD PT. NMSA", 120, signY + 60);
+    doc.text("Admin HRD PT. NMSA", 120, signY + 55);
 
     doc.text("Mengetahui & Menyetujui:", 580, signY);
-    doc.text("Pimpinan PT. Nusantara Mineral Sukses Abadi", 580, signY + 60);
+    doc.text("Pimpinan PT. Nusantara Mineral Sukses Abadi", 580, signY + 55);
   }
 
-  return doc.output("blob");
-}
-
-export function downloadWeeklyReportPDF(report: WeeklyReport, workers: Worker[], fileName?: string): void {
-  const blob = generateWeeklyReportPDFBlob(report, workers);
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName || `Laporan_Absensi_NMSA_${report.weekStartDate}_sd_${report.weekEndDate}.pdf`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const arrayBuffer = doc.output("arraybuffer");
+  return Buffer.from(arrayBuffer);
 }

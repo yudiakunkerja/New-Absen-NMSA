@@ -1,0 +1,170 @@
+{
+  "workers": [
+    {
+      "id": "W01",
+      "name": "Bpk Faisal Zainuddin",
+      "phoneNumber": "081342993880",
+      "role": "Karyawan",
+      "isActive": true,
+      "dailyAllowance": 25000
+    },
+    {
+      "id": "W02",
+      "name": "Ibu Sri Ekowati",
+      "phoneNumber": "085121315059",
+      "role": "Karyawan",
+      "isActive": true,
+      "dailyAllowance": 25000
+    },
+    {
+      "id": "W03",
+      "name": "Deasy Annisa Syahdane",
+      "phoneNumber": "08997419199",
+      "role": "Karyawan",
+      "isActive": true,
+      "dailyAllowance": 25000
+    },
+    {
+      "id": "W04",
+      "name": "Andi Dhiya Salsabila",
+      "phoneNumber": "085121311713",
+      "role": "Karyawan",
+      "isActive": true,
+      "dailyAllowance": 25000
+    },
+    {
+      "id": "W05",
+      "name": "Addrian Firmansyah Zain",
+      "phoneNumber": "085711655612",
+      "role": "Karyawan",
+      "isActive": true,
+      "dailyAllowance": 25000
+    },
+    {
+      "id": "W06",
+      "name": "Nur Wahyudi",
+      "phoneNumber": "+62 881-0240-40191",
+      "role": "Karyawan",
+      "isActive": true,
+      "dailyAllowance": 25000
+    },
+    {
+      "id": "W07",
+      "name": "Faranabila Zeolita Athalia",
+      "phoneNumber": "+447459719586",
+      "role": "Karyawan",
+      "isActive": true,
+      "dailyAllowance": 25000
+    },
+    {
+      "id": "W08",
+      "name": "Andi Respati Syarif",
+      "phoneNumber": "+62 857-5125-0015",
+      "role": "Karyawan",
+      "isActive": true,
+      "dailyAllowance": 25000
+    },
+    {
+      "id": "W09",
+      "name": "Junaedi",
+      "phoneNumber": "+62 895-3914-41239",
+      "role": "Karyawan",
+      "isActive": true,
+      "dailyAllowance": 25000
+    }
+  ],
+  "attendanceRecords": [
+    {
+      "workerId": "W01",
+      "attendance": {},
+      "dailyAllowance": 25000,
+      "customStatus": {},
+      "reasons": {}
+    }
+  ],
+  "attendanceLogs": [
+    {
+      "id": "LOG-AUTO-1788766729167",
+      "workerId": "SYSTEM",
+      "workerName": "Sistem Otomatis NMSA",
+      "date": "2026-09-07",
+      "time": "17:00:00",
+      "latitude": 0,
+      "longitude": 0,
+      "distance": 0,
+      "address": "Server Auto-Save Jam Pulang Kerja",
+      "status": "BERHASIL",
+      "notes": "Laporan Absensi PDF berhasil disimpan otomatis pada jam pulang kerja (Tersimpan di arsip server)"
+    },
+    {
+      "id": "LOG-AUTO-1788765964774",
+      "workerId": "SYSTEM",
+      "workerName": "Sistem Otomatis NMSA",
+      "date": "2026-09-07",
+      "time": "17:00:00",
+      "latitude": 0,
+      "longitude": 0,
+      "distance": 0,
+      "address": "Server Auto-Save Jam Pulang Kerja",
+      "status": "BERHASIL",
+      "notes": "Laporan Absensi PDF berhasil disimpan otomatis pada jam pulang kerja (Tersimpan di arsip server)"
+    }
+  ],
+  "fridayReports": [
+    {
+      "id": "REP-2026-09-07-2026-09-07",
+      "weekStartDate": "2026-09-07",
+      "weekEndDate": "2026-09-07",
+      "periodName": "Periode 07-07 September 2026",
+      "monthName": "September 2026",
+      "records": [
+        {
+          "workerId": "W01",
+          "attendance": {},
+          "dailyAllowance": 25000,
+          "customStatus": {},
+          "reasons": {}
+        },
+        {
+          "workerId": "W10",
+          "attendance": {},
+          "dailyAllowance": 25000,
+          "customStatus": {},
+          "reasons": {}
+        }
+      ],
+      "isSubmitted": true,
+      "submittedAt": "2026-09-07T07:38:49.106Z",
+      "autoSavedAt": "2026-09-07 17:00 WIB (Otomatis Jam Pulang Kerja NMSA)",
+      "totalCost": 0,
+      "totalPresent": 0
+    }
+  ],
+  "officeLocation": {
+    "name": "Kantor PT. Nusantara Mineral Sukses Abadi (NMSA)",
+    "latitude": -6.244342,
+    "longitude": 106.843073,
+    "radiusMeters": 150
+  },
+  "registeredAdminPhone": "",
+  "waMethod": "baileys",
+  "lastDailyClosingAutoSaveDate": "2026-09-07",
+  "lastFridayAutoSaveDate": "",
+  "botDispatchSettings": {
+    "autoDispatchEnabled": true,
+    "dispatchTime": "08:00",
+    "workDays": [
+      "Senin",
+      "Selasa",
+      "Rabu",
+      "Kamis",
+      "Jumat"
+    ],
+    "typingDelayMin": 3,
+    "typingDelayMax": 6,
+    "messageStyle": "human_dynamic",
+    "includeLocationReminder": true,
+    "lastAutoDispatchDate": ""
+  },
+  "botMessageLogs": []
+}

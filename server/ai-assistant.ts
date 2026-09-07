@@ -182,6 +182,8 @@ INFORMASI SISTEM SAAT INI:
 - Pengaturan Hari Kerja Bot: ${botSettings.workDays.join(", ")}
 - Jam Kirim Bot Pagi: ${botSettings.dispatchTime} WIB (Status: ${botSettings.autoDispatchEnabled ? "Aktif" : "Nonaktif"})
 - Total Karyawan: ${workers.length} orang
+- Standar Uang Makan Harian: Rp 25.000 / hari kerja hadir
+- Kebijakan Sistem: Setiap hari kerja saat jam pulang (17:00 WIB), sistem otomatis menyimpan berkas PDF absensi ke Google Drive terdaftar. Khusus setiap hari Jumat, admin bot WhatsApp otomatis menerima file dokumen PDF dan tautan link Google Drive tersebut.
 - Daftar Hari Libur Terdekat:
 ${JSON.stringify(sortedUpcomingHolidays, null, 2)}
 - Data Karyawan & Status Absensi Hari Ini:

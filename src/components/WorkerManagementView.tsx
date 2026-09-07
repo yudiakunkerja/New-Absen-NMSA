@@ -11,7 +11,9 @@ import {
   Phone,
   Briefcase,
   DollarSign,
-  Share2,
+  UserPlus,
+  Trash2,
+  AlertCircle,
 } from "lucide-react";
 import QRCode from "qrcode";
 import { Worker } from "../types";
@@ -19,12 +21,16 @@ import { Worker } from "../types";
 interface WorkerManagementViewProps {
   workers: Worker[];
   onUpdateWorker: (updated: Worker) => void;
+  onAddWorker?: (newWorker: Worker) => Promise<void> | void;
+  onDeleteWorker?: (workerId: string) => Promise<void> | void;
   onOpenWorkerAttendance: (worker: Worker) => void;
 }
 
 export const WorkerManagementView: React.FC<WorkerManagementViewProps> = ({
   workers,
   onUpdateWorker,
+  onAddWorker,
+  onDeleteWorker,
   onOpenWorkerAttendance,
 }) => {
   const [editingWorkerId, setEditingWorkerId] = useState<string | null>(null);
@@ -32,16 +38,112 @@ export const WorkerManagementView: React.FC<WorkerManagementViewProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [activeQrModal, setActiveQrModal] = useState<{ worker: Worker; qrUrl: string } | null>(null);
 
+  // Add Worker Modal State
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newWorkerForm, setNewWorkerForm] = useState<{
+    id: string;
+    name: string;
+    role: string;
+    phoneNumber: string;
+    dailyAllowance: number;
+  }>({
+    id: "",
+    name: "",
+    role: "Karyawan",
+    phoneNumber: "",
+    dailyAllowance: 25000,
+  });
+  const [isAdding, setIsAdding] = useState(false);
+
+  // Helper to generate next employee ID
+  const getNextWorkerId = (): string => {
+    const existingIds = workers
+      .map((w) => {
+        const match = w.id.match(/^W(\d+)$/i);
+        return match ? parseInt(match[1], 10) : null;
+      })
+      .filter((n): n is number => n !== null);
+    const maxNum = existingIds.length > 0 ? Math.max(...existingIds) : 0;
+    const nextNum = maxNum + 1;
+    return `W${String(nextNum).padStart(2, "0")}`;
+  };
+
+  const handleOpenAddModal = () => {
+    setNewWorkerForm({
+      id: getNextWorkerId(),
+      name: "",
+      role: "Karyawan",
+      phoneNumber: "",
+      dailyAllowance: 25000,
+    });
+    setShowAddModal(true);
+  };
+
+  const handleSaveNewWorker = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newWorkerForm.name.trim()) {
+      alert("Nama lengkap karyawan wajib diisi.");
+      return;
+    }
+    const finalId = newWorkerForm.id.trim() || getNextWorkerId();
+    if (workers.some((w) => w.id.toLowerCase() === finalId.toLowerCase())) {
+      alert(`ID Karyawan "${finalId}" sudah digunakan. Silakan gunakan ID lain.`);
+      return;
+    }
+
+    setIsAdding(true);
+    try {
+      const newWorker: Worker = {
+        id: finalId,
+        name: newWorkerForm.name.trim(),
+        role: newWorkerForm.role.trim() || "Karyawan",
+        phoneNumber: newWorkerForm.phoneNumber.trim(),
+        dailyAllowance: Number(newWorkerForm.dailyAllowance) || 25000,
+        isActive: true,
+        updatedAt: Date.now(),
+      };
+
+      if (onAddWorker) {
+        await onAddWorker(newWorker);
+      }
+      setShowAddModal(false);
+    } catch (err: any) {
+      alert(err.message || "Gagal menambahkan karyawan");
+    } finally {
+      setIsAdding(false);
+    }
+  };
+
+  const handleDelete = async (worker: Worker) => {
+    const confirmed = window.confirm(
+      `Apakah Anda yakin ingin menghapus karyawan "${worker.name}" (${worker.id})?\n\nKaryawan tidak akan muncul lagi di daftar aktif, namun rekap absensi historis yang sudah dicatat sebelumnya tetap aman tersimpan.`
+    );
+    if (!confirmed) return;
+
+    try {
+      if (onDeleteWorker) {
+        await onDeleteWorker(worker.id);
+      }
+    } catch (err: any) {
+      alert(err.message || "Gagal menghapus karyawan");
+    }
+  };
+
   const handleStartEdit = (w: Worker) => {
     setEditingWorkerId(w.id);
-    setEditForm({ ...w });
+    setEditForm({ ...w, dailyAllowance: w.dailyAllowance || 25000 });
   };
 
   const handleSaveEdit = () => {
     if (!editingWorkerId) return;
     const existing = workers.find((w) => w.id === editingWorkerId);
     if (!existing) return;
-    onUpdateWorker({ ...existing, ...editForm } as Worker);
+    onUpdateWorker({
+      ...existing,
+      ...editForm,
+      dailyAllowance: Number(editForm.dailyAllowance) || 25000,
+      updatedAt: Date.now(),
+    } as Worker);
     setEditingWorkerId(null);
   };
 
@@ -67,12 +169,25 @@ export const WorkerManagementView: React.FC<WorkerManagementViewProps> = ({
         <div>
           <div className="flex items-center space-x-2">
             <Users className="w-5 h-5 text-emerald-600" />
-            <h2 className="text-lg font-bold text-slate-900">Manajemen Data Karyawan (9 Orang)</h2>
+            <h2 className="text-lg font-bold text-slate-900">
+              Manajemen Data Karyawan ({workers.length} Orang)
+            </h2>
+            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              Uang Makan Rp 25.000 / Hari
+            </span>
           </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Setiap karyawan memiliki tautan presensi mandiri tanpa PIN yang mendeteksi lokasi koordinat kantor NMSA secara otomatis.
+          <p className="text-xs text-slate-500 mt-1 max-w-2xl">
+            Setiap karyawan memiliki tautan presensi mandiri tanpa PIN yang mendeteksi lokasi koordinat kantor NMSA secara otomatis. Anda dapat menambah atau menghapus karyawan sesuai kebutuhan operasional.
           </p>
         </div>
+
+        <button
+          onClick={handleOpenAddModal}
+          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm flex items-center justify-center space-x-2 transition-all shrink-0 hover:shadow-md"
+        >
+          <UserPlus className="w-4 h-4" />
+          <span>Tambah Karyawan Baru</span>
+        </button>
       </div>
 
       {/* Workers Grid */}
@@ -100,13 +215,22 @@ export const WorkerManagementView: React.FC<WorkerManagementViewProps> = ({
                   </div>
 
                   {!isEditing && (
-                    <button
-                      onClick={() => handleStartEdit(worker)}
-                      className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors"
-                      title="Edit Data Karyawan"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center space-x-1">
+                      <button
+                        onClick={() => handleStartEdit(worker)}
+                        className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors"
+                        title="Edit Data Karyawan"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(worker)}
+                        className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors"
+                        title="Hapus Karyawan"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   )}
                 </div>
 
@@ -118,7 +242,7 @@ export const WorkerManagementView: React.FC<WorkerManagementViewProps> = ({
                         type="text"
                         value={editForm.name || ""}
                         onChange={(e) => setEditForm((prev) => ({ ...prev, name: e.target.value }))}
-                        className="w-full text-xs p-2 rounded-lg border border-slate-200"
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:outline-emerald-500"
                       />
                     </div>
                     <div>
@@ -127,7 +251,7 @@ export const WorkerManagementView: React.FC<WorkerManagementViewProps> = ({
                         type="text"
                         value={editForm.role || ""}
                         onChange={(e) => setEditForm((prev) => ({ ...prev, role: e.target.value }))}
-                        className="w-full text-xs p-2 rounded-lg border border-slate-200"
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:outline-emerald-500"
                       />
                     </div>
                     <div>
@@ -136,18 +260,19 @@ export const WorkerManagementView: React.FC<WorkerManagementViewProps> = ({
                         type="text"
                         value={editForm.phoneNumber || ""}
                         onChange={(e) => setEditForm((prev) => ({ ...prev, phoneNumber: e.target.value }))}
-                        className="w-full text-xs p-2 rounded-lg border border-slate-200"
+                        placeholder="Contoh: 08123456789"
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:outline-emerald-500"
                       />
                     </div>
                     <div>
-                      <label className="text-[10px] font-semibold text-slate-500 uppercase">Uang Makan / Hari</label>
+                      <label className="text-[10px] font-semibold text-slate-500 uppercase">Uang Makan / Hari (Rp)</label>
                       <input
                         type="number"
-                        value={editForm.dailyAllowance || 50000}
+                        value={editForm.dailyAllowance || 25000}
                         onChange={(e) =>
                           setEditForm((prev) => ({ ...prev, dailyAllowance: Number(e.target.value) }))
                         }
-                        className="w-full text-xs p-2 rounded-lg border border-slate-200"
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 focus:outline-emerald-500"
                       />
                     </div>
 
@@ -170,22 +295,24 @@ export const WorkerManagementView: React.FC<WorkerManagementViewProps> = ({
                 ) : (
                   <div className="space-y-1.5 text-xs text-slate-600 my-3">
                     <div className="flex items-center space-x-2">
-                      <Briefcase className="w-3.5 h-3.5 text-slate-400" />
+                      <Briefcase className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                       <span>{worker.role}</span>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <Phone className="w-3.5 h-3.5 text-slate-400" />
+                      <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                       <span>{worker.phoneNumber || "Belum ada nomor WA"}</span>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <DollarSign className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Rp {(worker.dailyAllowance || 50000).toLocaleString("id-ID")} / hari</span>
+                      <DollarSign className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span className="font-medium text-emerald-700">
+                        Rp {(worker.dailyAllowance || 25000).toLocaleString("id-ID")} / hari
+                      </span>
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Action Buttons: Open Link, Copy Link, Show QR */}
+              {/* Action Buttons */}
               {!isEditing && (
                 <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
                   <button
@@ -221,6 +348,119 @@ export const WorkerManagementView: React.FC<WorkerManagementViewProps> = ({
           );
         })}
       </div>
+
+      {/* Add Worker Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200 relative">
+            <button
+              onClick={() => setShowAddModal(false)}
+              className="absolute top-4 right-4 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="flex items-center space-x-2.5 mb-4">
+              <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                <UserPlus className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Tambah Karyawan Baru</h3>
+                <p className="text-xs text-slate-500">PT. Nusantara Mineral Sukses Abadi</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveNewWorker} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  ID Karyawan <span className="text-slate-400 font-normal">(Otomatis/Dapat Diedit)</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newWorkerForm.id}
+                  onChange={(e) => setNewWorkerForm((prev) => ({ ...prev, id: e.target.value.toUpperCase() }))}
+                  placeholder="Contoh: W10"
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-300 font-mono font-bold text-slate-800 focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nama Lengkap Karyawan <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newWorkerForm.name}
+                  onChange={(e) => setNewWorkerForm((prev) => ({ ...prev, name: e.target.value }))}
+                  placeholder="Contoh: Bpk Ahmad Fauzi"
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Jabatan / Posisi
+                </label>
+                <input
+                  type="text"
+                  value={newWorkerForm.role}
+                  onChange={(e) => setNewWorkerForm((prev) => ({ ...prev, role: e.target.value }))}
+                  placeholder="Contoh: Karyawan / Staff Operasional"
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nomor WhatsApp <span className="text-slate-400 font-normal">(Untuk integrasi bot & broadcast)</span>
+                </label>
+                <input
+                  type="text"
+                  value={newWorkerForm.phoneNumber}
+                  onChange={(e) => setNewWorkerForm((prev) => ({ ...prev, phoneNumber: e.target.value }))}
+                  placeholder="Contoh: 08123456789 atau +628123456789"
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Uang Makan Harian (Rp)
+                </label>
+                <input
+                  type="number"
+                  value={newWorkerForm.dailyAllowance}
+                  onChange={(e) => setNewWorkerForm((prev) => ({ ...prev, dailyAllowance: Number(e.target.value) }))}
+                  className="w-full text-xs p-2.5 rounded-xl border border-slate-300 focus:border-emerald-500 focus:outline-none font-semibold text-emerald-700"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Standar perusahaan: <strong>Rp 25.000 / hari kerja hadir</strong>.
+                </p>
+              </div>
+
+              <div className="flex items-center space-x-2 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(false)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAdding}
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition-colors disabled:opacity-50 flex items-center justify-center space-x-1.5 shadow-sm"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>{isAdding ? "Menyimpan..." : "Simpan Karyawan"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* QR Code Modal */}
       {activeQrModal && (

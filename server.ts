@@ -11,11 +11,19 @@ import {
   getWhatsAppStatus,
   disconnectWhatsApp,
   sendWhatsAppMessage,
+  sendWhatsAppDocument,
   broadcastAttendanceLinks,
   resetWhatsAppSession,
   requestPairingCode,
   handleKeepAlivePing,
+  hasStoredCredentials,
 } from "./server/wa-bot";
+import { generateReportPdfBuffer } from "./server/pdf-generator";
+import {
+  uploadPdfBufferToGoogleDrive,
+  refreshGoogleDriveToken,
+  testGoogleDriveConnection,
+} from "./server/google-drive";
 import {
   generateHumanDailyMessage,
   generateAiPersonalizedMessage,
@@ -93,13 +101,19 @@ function readState(): any {
       const parsed = JSON.parse(raw);
       let changed = false;
 
-      // Ensure Deasy Annisa Syahdane is updated
+      // Ensure Deasy Annisa Syahdane is updated and workers dailyAllowance is 25000
       if (parsed.workers) {
         const deasy = parsed.workers.find((w: any) => w.id === "W03");
         if (deasy && deasy.name !== "Deasy Annisa Syahdane") {
           deasy.name = "Deasy Annisa Syahdane";
           changed = true;
         }
+        parsed.workers.forEach((w: any) => {
+          if (!w.dailyAllowance || w.dailyAllowance === 50000) {
+            w.dailyAllowance = 25000;
+            changed = true;
+          }
+        });
       } else {
         parsed.workers = INITIAL_WORKERS;
         changed = true;
@@ -108,6 +122,13 @@ function readState(): any {
       if (!parsed.attendanceRecords) {
         parsed.attendanceRecords = [];
         changed = true;
+      } else {
+        parsed.attendanceRecords.forEach((r: any) => {
+          if (!r.dailyAllowance || r.dailyAllowance === 50000) {
+            r.dailyAllowance = 25000;
+            changed = true;
+          }
+        });
       }
       if (!parsed.attendanceLogs) {
         parsed.attendanceLogs = [];
@@ -115,6 +136,10 @@ function readState(): any {
       }
       if (!parsed.fridayReports) {
         parsed.fridayReports = [];
+        changed = true;
+      }
+      if (parsed.lastDailyClosingAutoSaveDate === undefined) {
+        parsed.lastDailyClosingAutoSaveDate = "";
         changed = true;
       }
       if (!parsed.officeLocation) {
@@ -220,6 +245,69 @@ app.post("/api/shared-state", (req, res) => {
     const currentState = readState();
     const merged = { ...currentState, ...req.body };
     writeState(merged);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Worker Management: Add Worker
+app.post("/api/workers/add", (req, res) => {
+  try {
+    const { id, name, role, phoneNumber, dailyAllowance } = req.body;
+    if (!name || !name.trim()) {
+      return res.status(400).json({ success: false, error: "Nama lengkap karyawan wajib diisi." });
+    }
+    const state = readState();
+    if (!state.workers) state.workers = [];
+
+    const finalId = (id && id.trim()) || `W${String(state.workers.length + 1).padStart(2, "0")}`;
+    if (state.workers.some((w: any) => w.id.toLowerCase() === finalId.toLowerCase())) {
+      return res.status(400).json({ success: false, error: `ID Karyawan "${finalId}" sudah digunakan.` });
+    }
+
+    const newWorker = {
+      id: finalId,
+      name: name.trim(),
+      role: (role && role.trim()) || "Karyawan",
+      phoneNumber: (phoneNumber && phoneNumber.trim()) || "",
+      dailyAllowance: Number(dailyAllowance) || 25000,
+      isActive: true,
+      updatedAt: Date.now(),
+    };
+
+    state.workers.push(newWorker);
+
+    // Also initialize attendance record for current week
+    if (!state.attendanceRecords) state.attendanceRecords = [];
+    if (!state.attendanceRecords.some((r: any) => r.workerId === finalId)) {
+      state.attendanceRecords.push({
+        workerId: finalId,
+        attendance: {},
+        dailyAllowance: newWorker.dailyAllowance,
+        customStatus: {},
+        reasons: {},
+      });
+    }
+
+    writeState(state);
+    res.json({ success: true, worker: newWorker });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Worker Management: Delete Worker
+app.post("/api/workers/delete", (req, res) => {
+  try {
+    const { workerId } = req.body;
+    if (!workerId) {
+      return res.status(400).json({ success: false, error: "workerId is required" });
+    }
+    const state = readState();
+    if (!state.workers) state.workers = [];
+    state.workers = state.workers.filter((w: any) => w.id !== workerId);
+    writeState(state);
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -364,8 +452,8 @@ app.post("/api/ai/chat", async (req, res) => {
 // WhatsApp Bot Endpoints
 app.get("/api/wa/status", (req, res) => {
   const status = getWhatsAppStatus();
-  // Auto-init WhatsApp in background if currently disconnected so QR code is generated right away!
-  if (status.status === "disconnected") {
+  // Only auto-init if we have an existing authenticated session to restore, or explicitly requested
+  if (req.query.init === "true" || (status.status === "disconnected" && hasStoredCredentials())) {
     initWhatsApp().catch((e) => console.log("Background WA socket startup:", e.message));
   }
   res.json(getWhatsAppStatus());
@@ -529,6 +617,34 @@ app.post("/api/wa/send-test", async (req, res) => {
   }
 });
 
+// Helper: Get or automatically refresh Google Drive access token
+export async function getOrRefreshDriveAccessToken(state: any): Promise<string | null> {
+  const now = Date.now();
+  const isExpiringSoon =
+    !state.googleDriveToken ||
+    (state.googleDriveTokenExpiresAt && now >= state.googleDriveTokenExpiresAt - 300000);
+
+  if (state.googleDriveRefreshToken && isExpiringSoon) {
+    try {
+      console.log("[Google Drive] Refreshing access token via refresh_token...");
+      const refreshed = await refreshGoogleDriveToken(
+        state.googleDriveRefreshToken,
+        state.googleDriveClientId,
+        state.googleDriveClientSecret
+      );
+      state.googleDriveToken = refreshed.accessToken;
+      state.googleDriveTokenExpiresAt = Date.now() + refreshed.expiresIn * 1000;
+      writeState(state);
+      console.log("[Google Drive] Token berhasil di-refresh otomatis! Berlaku hingga:", new Date(state.googleDriveTokenExpiresAt).toISOString());
+      return state.googleDriveToken;
+    } catch (err: any) {
+      console.error("[Google Drive] Gagal auto-refresh token:", err.message);
+    }
+  }
+
+  return state.googleDriveToken || null;
+}
+
 // Google Drive token persistence on server
 app.post("/api/drive/save-token", (req, res) => {
   try {
@@ -537,6 +653,111 @@ app.post("/api/drive/save-token", (req, res) => {
     state.googleDriveToken = token;
     writeState(state);
     res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Configure Google Drive credentials (permanent auto-refresh or direct token)
+app.post("/api/drive/config", async (req, res) => {
+  try {
+    const { token, refreshToken, clientId, clientSecret } = req.body;
+    const state = readState();
+
+    if (token !== undefined) state.googleDriveToken = token;
+    if (refreshToken !== undefined) state.googleDriveRefreshToken = refreshToken;
+    if (clientId !== undefined) state.googleDriveClientId = clientId;
+    if (clientSecret !== undefined) state.googleDriveClientSecret = clientSecret;
+
+    let testResult: any = null;
+    let activeToken = state.googleDriveToken;
+
+    // If refreshToken provided but no active token, refresh immediately
+    if (state.googleDriveRefreshToken && (!activeToken || activeToken.trim() === "")) {
+      try {
+        const refreshed = await refreshGoogleDriveToken(
+          state.googleDriveRefreshToken,
+          state.googleDriveClientId,
+          state.googleDriveClientSecret
+        );
+        state.googleDriveToken = refreshed.accessToken;
+        state.googleDriveTokenExpiresAt = Date.now() + refreshed.expiresIn * 1000;
+        activeToken = refreshed.accessToken;
+      } catch (refErr: any) {
+        console.warn("Peringatan refresh token:", refErr.message);
+      }
+    }
+
+    if (activeToken) {
+      try {
+        testResult = await testGoogleDriveConnection(activeToken);
+      } catch (testErr: any) {
+        console.warn("Test koneksi Drive gagal:", testErr.message);
+      }
+    }
+
+    writeState(state);
+
+    res.json({
+      success: true,
+      isConnected: Boolean(activeToken),
+      isPermanent: Boolean(state.googleDriveRefreshToken),
+      testResult,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Get Google Drive connection status
+app.get("/api/drive/status", (req, res) => {
+  const state = readState();
+  const hasToken = Boolean(state.googleDriveToken);
+  const hasRefreshToken = Boolean(state.googleDriveRefreshToken);
+  res.json({
+    isConnected: hasToken || hasRefreshToken,
+    isPermanent: hasRefreshToken,
+    hasToken,
+    hasRefreshToken,
+    clientId: state.googleDriveClientId ? `${state.googleDriveClientId.slice(0, 12)}...` : undefined,
+    expiresAt: state.googleDriveTokenExpiresAt,
+  });
+});
+
+// Test live Google Drive connection
+app.post("/api/drive/test-connection", async (req, res) => {
+  try {
+    const state = readState();
+    const token = await getOrRefreshDriveAccessToken(state);
+    if (!token) {
+      return res.status(400).json({
+        success: false,
+        error: "Belum ada token Google Drive yang tersimpan. Hubungkan Google Drive terlebih dahulu.",
+      });
+    }
+    const result = await testGoogleDriveConnection(token);
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Delete a report from fridayReports
+app.post("/api/friday/delete-report", (req, res) => {
+  try {
+    const { reportId } = req.body;
+    if (!reportId) {
+      return res.status(400).json({ success: false, error: "reportId diperlukan" });
+    }
+    const state = readState();
+    const beforeCount = (state.fridayReports || []).length;
+    state.fridayReports = (state.fridayReports || []).filter((r: any) => r.id !== reportId);
+    writeState(state);
+    res.json({
+      success: true,
+      deletedCount: beforeCount - state.fridayReports.length,
+      fridayReports: state.fridayReports,
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -721,88 +942,263 @@ app.post("/api/friday/save-report", (req, res) => {
   }
 });
 
-// ==================== FRIDAY 17:00 AUTO-SAVE BACKGROUND CRON ====================
-function runFridayAutoSaveCheck() {
+// ==================== DAILY CLOSING AUTO-SAVE & FRIDAY ADMIN BOT DISPATCH ====================
+
+interface ClosingAutoSaveResult {
+  success: boolean;
+  report: any;
+  driveUrl?: string;
+  driveUploadSuccess: boolean;
+  fileName: string;
+  pdfBufferLength: number;
+  sentToAdminWa: boolean;
+  adminPhone?: string;
+  error?: string;
+}
+
+export async function executeDailyWorkdayClosingAutoSave(forcedDate?: string): Promise<ClosingAutoSaveResult> {
+  const todayDate = forcedDate || getJakartaDateStr();
+  const { weekday } = getJakartaTimeDetails();
+  const state = readState();
+
+  // Consistent 1-week period: Monday to Friday
+  const mondayDate = getMondayDateStr(todayDate);
+  const mParts = mondayDate.split("-").map(Number);
+  const fridayObj = new Date(Date.UTC(mParts[0], mParts[1] - 1, mParts[2] + 4, 12, 0, 0));
+  const fridayDate = fridayObj.toISOString().slice(0, 10);
+  const yStr = fridayObj.getUTCFullYear();
+  const monthIndex = fridayObj.getUTCMonth();
+  const monthNameIndo = `${INDONESIAN_MONTHS[monthIndex]} ${yStr}`;
+  const periodName = `Periode ${mondayDate.slice(8, 10)}-${fridayDate.slice(8, 10)} ${monthNameIndo}`;
+
+  // Report ID is uniform for the entire week: Monday to Friday
+  const reportId = `REP-${mondayDate}-${fridayDate}`;
+  const validRecords = (state.attendanceRecords || []).map((r: any) => ({
+    ...r,
+    dailyAllowance: r.dailyAllowance || 25000,
+  }));
+
+  const totalCost = validRecords.reduce((sum: number, r: any) => {
+    const presentDays = Object.keys(r.attendance || {}).filter(
+      (k) => r.attendance[k] && (!r.customStatus || !r.customStatus[k] || r.customStatus[k] === "Hadir")
+    ).length;
+    return sum + presentDays * (r.dailyAllowance || 25000);
+  }, 0);
+
+  const totalPresent = validRecords.reduce((sum: number, r: any) => {
+    const presentDays = Object.keys(r.attendance || {}).filter(
+      (k) => r.attendance[k] && (!r.customStatus || !r.customStatus[k] || r.customStatus[k] === "Hadir")
+    ).length;
+    return sum + presentDays;
+  }, 0);
+
+  const fileName = `Laporan_Absensi_NMSA_${periodName.replace(/\s+/g, "_")}.pdf`;
+
+  const reportObj: any = {
+    id: reportId,
+    weekStartDate: mondayDate,
+    weekEndDate: fridayDate,
+    periodName,
+    monthName: monthNameIndo,
+    records: validRecords,
+    isSubmitted: true,
+    submittedAt: new Date().toISOString(),
+    autoSavedAt: `${todayDate} 17:00 WIB (Otomatis Jam Pulang Kerja NMSA)`,
+    totalCost,
+    totalPresent,
+  };
+
+  // 1. Generate PDF buffer on server
+  let pdfBuffer: Buffer;
   try {
-    const { weekday, hour, minute } = getJakartaTimeDetails();
-    const todayDate = getJakartaDateStr();
+    pdfBuffer = generateReportPdfBuffer(reportObj, state.workers || INITIAL_WORKERS);
+  } catch (err: any) {
+    console.error("[PDF Generator] Gagal generate PDF:", err);
+    throw new Error(`Gagal membuat PDF: ${err.message}`);
+  }
 
-    // Is it Friday and hour >= 17 (jam 5 sore)?
-    if (weekday === "Fri" && hour >= 17) {
-      const state = readState();
-      if (state.lastFridayAutoSaveDate !== todayDate) {
-        console.log(`[Auto-Archive] Friday 17:00 reached! Auto-saving weekly attendance for ${todayDate}...`);
+  // 2. Upload/Update to Google Drive (Anti-duplicate: Updates 1 file per period)
+  let driveUploadSuccess = false;
+  let driveUrl = "";
+  const driveAccessToken = await getOrRefreshDriveAccessToken(state);
 
-        const mondayDate = getMondayDateStr(todayDate);
-        const mParts = mondayDate.split("-").map(Number);
-        const mObj = new Date(Date.UTC(mParts[0], mParts[1] - 1, mParts[2] + 4, 12, 0, 0));
-        const yStr = mObj.getUTCFullYear();
-        const monthIndex = mObj.getUTCMonth();
-        const monthNameIndo = `${INDONESIAN_MONTHS[monthIndex]} ${yStr}`;
-        const periodName = `Periode ${mondayDate.slice(8)}-${todayDate.slice(8)} ${INDONESIAN_MONTHS[monthIndex]} ${yStr}`;
-
-        const reportId = `REP-${mondayDate}-${todayDate}`;
-        const validRecords = (state.attendanceRecords || []).map((r: any) => ({ ...r }));
-
-        const totalCost = validRecords.reduce((sum: number, r: any) => {
-          const presentDays = Object.keys(r.attendance || {}).filter(
-            (k) => r.attendance[k] && (!r.customStatus || !r.customStatus[k] || r.customStatus[k] === "Hadir")
-          ).length;
-          return sum + presentDays * (r.dailyAllowance || 50000);
-        }, 0);
-
-        const totalPresent = validRecords.reduce((sum: number, r: any) => {
-          const presentDays = Object.keys(r.attendance || {}).filter(
-            (k) => r.attendance[k] && (!r.customStatus || !r.customStatus[k] || r.customStatus[k] === "Hadir")
-          ).length;
-          return sum + presentDays;
-        }, 0);
-
-        const newReport = {
-          id: reportId,
-          weekStartDate: mondayDate,
-          weekEndDate: todayDate,
+  if (driveAccessToken) {
+    try {
+      console.log(`[Google Drive] Memeriksa & mengupdate PDF absensi ke folder (absen > ${monthNameIndo} > ${periodName})...`);
+      let uploadResult;
+      try {
+        uploadResult = await uploadPdfBufferToGoogleDrive(
+          driveAccessToken,
+          monthNameIndo,
           periodName,
-          monthName: monthNameIndo,
-          records: validRecords,
-          isSubmitted: true,
-          submittedAt: new Date().toISOString(),
-          autoSavedAt: `${todayDate} 17:00 WIB (Otomatis Jam Pulang Jumat)`,
-          totalCost,
-          totalPresent,
-        };
+          fileName,
+          pdfBuffer
+        );
+      } catch (uploadErr: any) {
+        // If 401 Unauthorized, auto-refresh token and retry upload once
+        if (state.googleDriveRefreshToken && (uploadErr.message?.includes("401") || uploadErr.message?.includes("UNAUTHENTICATED"))) {
+          console.log("[Google Drive] Mendeteksi token expired (401), melakukan auto-refresh token & retry...");
+          const refreshed = await refreshGoogleDriveToken(
+            state.googleDriveRefreshToken,
+            state.googleDriveClientId,
+            state.googleDriveClientSecret
+          );
+          state.googleDriveToken = refreshed.accessToken;
+          state.googleDriveTokenExpiresAt = Date.now() + refreshed.expiresIn * 1000;
+          writeState(state);
 
-        if (!state.fridayReports) state.fridayReports = [];
-        const existingIdx = state.fridayReports.findIndex((r: any) => r.id === reportId);
-        if (existingIdx >= 0) {
-          state.fridayReports[existingIdx] = newReport;
+          uploadResult = await uploadPdfBufferToGoogleDrive(
+            refreshed.accessToken,
+            monthNameIndo,
+            periodName,
+            fileName,
+            pdfBuffer
+          );
         } else {
-          state.fridayReports.unshift(newReport);
+          throw uploadErr;
         }
+      }
 
-        state.lastFridayAutoSaveDate = todayDate;
+      driveUploadSuccess = true;
+      driveUrl = uploadResult.driveUrl;
+      reportObj.driveUrl = driveUrl;
+      reportObj.driveFileId = uploadResult.fileId;
+      reportObj.pdfDriveUrl = driveUrl;
+      console.log(`[Google Drive] Sukses ${uploadResult.isUpdated ? "mengupdate" : "mengunggah"} PDF ke Drive: ${driveUrl}`);
+    } catch (err: any) {
+      console.error(`[Google Drive] Gagal upload ke Drive:`, err.message || err);
+    }
+  } else {
+    console.log(`[Google Drive] Catatan: Token Google Drive belum terhubung; PDF disimpan di arsip laporan server.`);
+  }
 
-        if (!state.attendanceLogs) state.attendanceLogs = [];
-        state.attendanceLogs.unshift({
-          id: `LOG-AUTO-${Date.now()}`,
-          workerId: "SYSTEM",
-          workerName: "Sistem Otomatis NMSA",
-          date: todayDate,
-          time: "17:00:00",
-          latitude: 0,
-          longitude: 0,
-          distance: 0,
-          address: `Server Background Auto-Save`,
-          status: "BERHASIL",
-          notes: `Laporan Mingguan Jumat disimpan otomatis pada jam pulang kerja (Folder: absen > ${monthNameIndo} > ${periodName})`,
-        });
+  // Save report into state
+  if (!state.fridayReports) state.fridayReports = [];
+  const existingIdx = state.fridayReports.findIndex((r: any) => r.id === reportId);
+  if (existingIdx >= 0) {
+    state.fridayReports[existingIdx] = { ...state.fridayReports[existingIdx], ...reportObj };
+  } else {
+    state.fridayReports.unshift(reportObj);
+  }
 
-        writeState(state);
-        console.log(`[Auto-Archive] Successfully recorded Friday report into riwayat laporan jumat.`);
+  state.lastDailyClosingAutoSaveDate = todayDate;
+  if (weekday === "Fri") {
+    state.lastFridayAutoSaveDate = todayDate;
+  }
+
+  // 3. Log into Attendance Logs
+  if (!state.attendanceLogs) state.attendanceLogs = [];
+  state.attendanceLogs.unshift({
+    id: `LOG-AUTO-${Date.now()}`,
+    workerId: "SYSTEM",
+    workerName: "Sistem Otomatis NMSA",
+    date: todayDate,
+    time: "17:00:00",
+    latitude: 0,
+    longitude: 0,
+    distance: 0,
+    address: `Server Auto-Save Jam Pulang Kerja`,
+    status: "BERHASIL",
+    notes: `Laporan Absensi PDF berhasil disimpan otomatis pada jam pulang kerja${
+      driveUploadSuccess ? ` ke Google Drive: ${driveUrl}` : " (Tersimpan di arsip server)"
+    }`,
+  });
+
+  // 4. Send document to Admin WhatsApp if Friday (or if explicitly triggered)
+  let sentToAdminWa = false;
+  const adminPhone = state.registeredAdminPhone || state.botDispatchSettings?.adminPhone;
+
+  if (adminPhone) {
+    const caption = [
+      `📄 *LAPORAN PRESENSI & UANG MAKAN PT. NMSA*`,
+      `🏢 *PT. Nusantara Mineral Sukses Abadi*`,
+      `📅 *Periode:* ${periodName}`,
+      `👥 *Total Karyawan:* ${validRecords.length} orang`,
+      `✅ *Total Kehadiran:* ${totalPresent} hari kerja`,
+      `💰 *Total Uang Makan:* Rp ${totalCost.toLocaleString("id-ID")} (Rp 25.000 /hari)`,
+      ``,
+      driveUrl
+        ? `🔗 *Link Google Drive:*\n${driveUrl}`
+        : `📁 *Folder:* absen > ${monthNameIndo} > ${periodName}`,
+      ``,
+      `📌 *Catatan:* Berkas dokumen PDF absensi resmi terlampir di atas dan otomatis diarsipkan ke Google Drive pada jam pulang kerja.`,
+    ].join("\n");
+
+    try {
+      sentToAdminWa = await sendWhatsAppDocument(adminPhone, pdfBuffer, fileName, caption);
+      console.log(`[WA-Bot Admin Dispatch] Mengirim PDF ke nomor admin (${adminPhone}): ${sentToAdminWa ? "BERHASIL" : "GAGAL"}`);
+
+      if (!state.botMessageLogs) state.botMessageLogs = [];
+      state.botMessageLogs.unshift({
+        id: `BOT-DOC-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        targetPhone: adminPhone,
+        targetName: "Admin PT. NMSA",
+        messageText: caption,
+        status: sentToAdminWa ? "sent" : "failed",
+        style: "friday_weekly_report",
+      });
+    } catch (waErr: any) {
+      console.error("[WA-Bot Admin Dispatch] Gagal kirim dokumen WA:", waErr.message || waErr);
+    }
+  } else {
+    console.log(`[WA-Bot Admin Dispatch] Nomor admin WhatsApp belum terdaftar di aplikasi.`);
+  }
+
+  writeState(state);
+
+  return {
+    success: true,
+    report: reportObj,
+    driveUrl: driveUrl || undefined,
+    driveUploadSuccess,
+    fileName,
+    pdfBufferLength: pdfBuffer.length,
+    sentToAdminWa,
+    adminPhone,
+  };
+}
+
+// Endpoint: Manual trigger of Daily Workday Closing Auto-Save
+app.post("/api/daily/trigger-closing-autosave", async (req, res) => {
+  try {
+    const result = await executeDailyWorkdayClosingAutoSave(req.body?.targetDate);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Endpoint: Trigger Friday Report sending to WhatsApp Admin
+app.post("/api/friday/send-to-wa-admin", async (req, res) => {
+  try {
+    const result = await executeDailyWorkdayClosingAutoSave(req.body?.targetDate);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ==================== BACKGROUND CRON: DAILY CLOSING (17:00 WIB) ====================
+async function runDailyClosingAutoSaveCheck() {
+  try {
+    const { weekday, hour } = getJakartaTimeDetails();
+    const todayDate = getJakartaDateStr();
+    const state = readState();
+
+    const workDays = state.botDispatchSettings?.workDays || ["Senin", "Selasa", "Rabu", "Kamis", "Jumat"];
+    const { dayName } = getJakartaDayOfWeek();
+    const isWorkDay = workDays.includes(dayName);
+
+    // Closing time: 17:00 WIB (hour >= 17) on workdays
+    if (isWorkDay && hour >= 17) {
+      if (state.lastDailyClosingAutoSaveDate !== todayDate) {
+        console.log(`[Closing Auto-Save] Jam pulang kerja 17:00 WIB tercapai untuk ${dayName}, ${todayDate}! Memulai auto-save PDF absensi...`);
+        await executeDailyWorkdayClosingAutoSave(todayDate);
       }
     }
   } catch (err) {
-    console.error("Error in Friday auto-save cron check:", err);
+    console.error("Error in daily closing auto-save cron check:", err);
   }
 }
 
@@ -861,7 +1257,7 @@ function runMorningBotDispatchCheck() {
 }
 
 // Run checks every 60 seconds
-setInterval(runFridayAutoSaveCheck, 60000);
+setInterval(runDailyClosingAutoSaveCheck, 60000);
 setInterval(runMorningBotDispatchCheck, 60000);
 
 // ==================== VITE & PRODUCTION SERVER ====================

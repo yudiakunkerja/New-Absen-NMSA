@@ -276,8 +276,13 @@ export const WorkerAttendanceView: React.FC<WorkerAttendanceViewProps> = ({
           )}
 
           <div className="text-center pt-2">
-            <div className="w-12 h-12 rounded-xl bg-emerald-600 text-white flex items-center justify-center mx-auto mb-3 shadow-md">
-              <Building2 className="w-7 h-7" />
+            <div className="w-16 h-16 rounded-2xl bg-white p-1.5 flex items-center justify-center mx-auto mb-3 shadow-md border border-slate-200 overflow-hidden">
+              <img
+                src="https://i.ibb.co.com/0jwQZRH0/Logo-Nusantara-Mineral-Sukses-Abadi.jpg"
+                alt="Logo PT. Nusantara Mineral Sukses Abadi"
+                className="w-full h-full object-contain"
+                referrerPolicy="no-referrer"
+              />
             </div>
             <h1 className="text-xl font-bold tracking-tight">Presensi Mandiri NMSA</h1>
             <p className="text-xs text-slate-300 mt-1">PT. Nusantara Mineral Sukses Abadi</p>

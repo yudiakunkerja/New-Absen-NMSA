@@ -38,7 +38,16 @@ import {
 dotenv.config();
 
 const app = express();
-const PORT = 3000;
+
+// In Google Cloud Run (AI Studio dev container), internal nginx reverse proxy requires port 3000.
+// On Railway or other cloud PaaS (detected via RAILWAY_* or process.env.PORT when not on Cloud Run K_SERVICE),
+// bind to the dynamically assigned process.env.PORT.
+const isAiStudioContainer = Boolean(
+  process.env.K_SERVICE && !process.env.RAILWAY_ENVIRONMENT && !process.env.RAILWAY_PROJECT_ID
+);
+const PORT = isAiStudioContainer
+  ? 3000
+  : (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000);
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
@@ -758,8 +767,8 @@ export async function getOrRefreshDriveAccessToken(state: any): Promise<string |
       console.log("[Google Drive] Refreshing access token via refresh_token...");
       const refreshed = await refreshGoogleDriveToken(
         state.googleDriveRefreshToken,
-        state.googleDriveClientId,
-        state.googleDriveClientSecret
+        state.googleDriveClientId || process.env.GOOGLE_DRIVE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
+        state.googleDriveClientSecret || process.env.GOOGLE_DRIVE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET
       );
       state.googleDriveToken = refreshed.accessToken;
       state.googleDriveTokenExpiresAt = Date.now() + refreshed.expiresIn * 1000;
@@ -806,8 +815,8 @@ app.post("/api/drive/config", async (req, res) => {
       try {
         const refreshed = await refreshGoogleDriveToken(
           state.googleDriveRefreshToken,
-          state.googleDriveClientId,
-          state.googleDriveClientSecret
+          state.googleDriveClientId || process.env.GOOGLE_DRIVE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
+          state.googleDriveClientSecret || process.env.GOOGLE_DRIVE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET
         );
         state.googleDriveToken = refreshed.accessToken;
         state.googleDriveTokenExpiresAt = Date.now() + refreshed.expiresIn * 1000;
@@ -820,6 +829,9 @@ app.post("/api/drive/config", async (req, res) => {
     if (activeToken) {
       try {
         testResult = await testGoogleDriveConnection(activeToken);
+        if (testResult?.userEmail) {
+          state.googleDriveUserEmail = testResult.userEmail;
+        }
       } catch (testErr: any) {
         console.warn("Test koneksi Drive gagal:", testErr.message);
       }
@@ -843,12 +855,15 @@ app.get("/api/drive/status", (req, res) => {
   const state = readState();
   const hasToken = Boolean(state.googleDriveToken);
   const hasRefreshToken = Boolean(state.googleDriveRefreshToken);
+  const resolvedClientId = state.googleDriveClientId || process.env.GOOGLE_DRIVE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || "";
   res.json({
     isConnected: hasToken || hasRefreshToken,
     isPermanent: hasRefreshToken,
     hasToken,
     hasRefreshToken,
-    clientId: state.googleDriveClientId ? `${state.googleDriveClientId.slice(0, 12)}...` : undefined,
+    clientId: resolvedClientId ? `${resolvedClientId.slice(0, 12)}...` : undefined,
+    rawClientId: resolvedClientId,
+    userEmail: state.googleDriveUserEmail,
     expiresAt: state.googleDriveTokenExpiresAt,
   });
 });
@@ -1169,8 +1184,8 @@ export async function executeDailyWorkdayClosingAutoSave(forcedDate?: string): P
           console.log("[Google Drive] Mendeteksi token expired (401), melakukan auto-refresh token & retry...");
           const refreshed = await refreshGoogleDriveToken(
             state.googleDriveRefreshToken,
-            state.googleDriveClientId,
-            state.googleDriveClientSecret
+            state.googleDriveClientId || process.env.GOOGLE_DRIVE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
+            state.googleDriveClientSecret || process.env.GOOGLE_DRIVE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET
           );
           state.googleDriveToken = refreshed.accessToken;
           state.googleDriveTokenExpiresAt = Date.now() + refreshed.expiresIn * 1000;

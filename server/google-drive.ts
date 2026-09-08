@@ -22,8 +22,8 @@ export async function refreshGoogleDriveToken(
   clientId?: string,
   clientSecret?: string
 ): Promise<{ accessToken: string; expiresIn: number }> {
-  const cId = clientId || process.env.GOOGLE_CLIENT_ID || "";
-  const cSec = clientSecret || process.env.GOOGLE_CLIENT_SECRET || "";
+  const cId = clientId || process.env.GOOGLE_DRIVE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || "";
+  const cSec = clientSecret || process.env.GOOGLE_DRIVE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || "";
 
   if (!refreshToken) {
     throw new Error("Refresh token Google Drive tidak ditemukan.");

@@ -38,16 +38,7 @@ import {
 dotenv.config();
 
 const app = express();
-
-// In Google Cloud Run (AI Studio environment), an internal nginx proxy forwards external traffic to localhost:3000.
-// On Railway or other cloud PaaS (detected via RAILWAY_* or process.env.PORT when not on Cloud Run K_SERVICE),
-// bind to the dynamically assigned process.env.PORT.
-const isAiStudioContainer = Boolean(
-  process.env.K_SERVICE && !process.env.RAILWAY_ENVIRONMENT && !process.env.RAILWAY_PROJECT_ID
-);
-const PORT = isAiStudioContainer
-  ? 3000
-  : (process.env.PORT ? parseInt(process.env.PORT, 10) : 3000);
+const PORT = 3000;
 
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));

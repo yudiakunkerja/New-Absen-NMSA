@@ -1406,7 +1406,12 @@ async function start() {
   // Initialize WhatsApp Baileys in background
   initWhatsApp().catch((err) => console.log("Initial WA init:", err.message));
 
-  if (process.env.NODE_ENV !== "production") {
+  // Check production build: either NODE_ENV=production or dist/index.html exists
+  const isProduction =
+    process.env.NODE_ENV === "production" ||
+    fs.existsSync(path.join(process.cwd(), "dist", "index.html"));
+
+  if (!isProduction) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
